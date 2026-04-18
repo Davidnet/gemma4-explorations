@@ -34,8 +34,14 @@ The current `0.19rc1` patch adds:
 - Gemma 4 decoder-layer activation capture aligned with the Hugging Face
   `extract_all_hidden_states_npz.py` reference
 
-Gemma 4 activation extraction is validated in eager mode. Fast prefill remains
-unsupported for this activation-capture path.
+`extract_activation_layers` is an exact `list[int]` API. For example,
+`[12, 20]` captures only layers `12` and `20`.
+
+Gemma 4 activation extraction now returns the last prompt-token hidden state for
+each requested layer. That narrower contract is validated against the saved
+Hugging Face `.npz` by slicing the reference activations at the last prompt
+token during comparison, and it is intended to work on the fast-prefill path
+without forcing eager mode.
 
 ## Apply the patch
 
@@ -62,8 +68,9 @@ uv run python compare_vllm_hidden_states.py
 ```
 
 The current comparison helper tolerates the missing batch dimension on the
-vLLM-side activation tensor by adding that dimension during comparison only.
-The default pass threshold is `0.998` cosine similarity across all layers.
+vLLM-side activation tensor by squeezing singleton batch dimensions during
+comparison only. The default pass threshold is `0.998` cosine similarity across
+all layers.
 
 ## Assumptions
 

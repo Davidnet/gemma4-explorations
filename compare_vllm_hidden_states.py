@@ -41,6 +41,11 @@ def parse_args() -> argparse.Namespace:
         default=0.998,
         help="Minimum acceptable cosine similarity for every layer.",
     )
+    parser.add_argument(
+        "--enforce-eager",
+        action="store_true",
+        help="Force eager execution instead of testing the optimized prefill path.",
+    )
     return parser.parse_args()
 
 
@@ -53,6 +58,22 @@ def cosine_similarity(left: torch.Tensor, right: torch.Tensor) -> float:
     left = left.reshape(1, -1).to(dtype=torch.float32)
     right = right.reshape(1, -1).to(dtype=torch.float32)
     return float(F.cosine_similarity(left, right).item())
+
+
+def squeeze_singleton_batch(tensor: torch.Tensor) -> torch.Tensor:
+    if tensor.ndim == 2 and tensor.shape[0] == 1:
+        return tensor.squeeze(0)
+    return tensor
+
+
+def get_reference_last_token_hidden_state(
+    reference_hidden_states: np.ndarray,
+    layer_idx: int,
+) -> torch.Tensor:
+    reference_hidden_state = torch.from_numpy(
+        reference_hidden_states[layer_idx][..., -1, :]
+    ).to(dtype=torch.float32)
+    return squeeze_singleton_batch(reference_hidden_state)
 
 
 def main() -> None:
@@ -68,8 +89,7 @@ def main() -> None:
         trust_remote_code=True,
         dtype="bfloat16",
         tensor_parallel_size=1,
-        enforce_eager=True,
-        compilation_config={"mode": 0},
+        enforce_eager=args.enforce_eager,
         extract_activation_layers=layer_indices,
     )
     outputs = llm.generate(
@@ -88,14 +108,13 @@ def main() -> None:
         if layer_idx not in completion.activations:
             raise RuntimeError(f"Missing vLLM activation for layer {layer_idx}.")
 
-        vllm_hidden_state = completion.activations[layer_idx].to(
-            device="cpu", dtype=torch.float32
+        vllm_hidden_state = squeeze_singleton_batch(
+            completion.activations[layer_idx].to(device="cpu", dtype=torch.float32)
         )
-        reference_hidden_state = torch.from_numpy(
-            reference_hidden_states[layer_idx]
-        ).to(dtype=torch.float32)
-        if vllm_hidden_state.ndim == reference_hidden_state.ndim - 1:
-            vllm_hidden_state = vllm_hidden_state.unsqueeze(0)
+        reference_hidden_state = get_reference_last_token_hidden_state(
+            reference_hidden_states,
+            layer_idx,
+        )
 
         if tuple(vllm_hidden_state.shape) != tuple(reference_hidden_state.shape):
             raise RuntimeError(
