@@ -1,9 +1,8 @@
 import torch
 from transformers import AutoModelForCausalLM, AutoProcessor
 
-
 MODEL_ID = "google/gemma-4-26B-A4B-it"
-PROMPT = "Explain in 3 short bullet points what Gemma 4 is and when I should use it."
+PROMPT = "The capital of France is"
 MAX_NEW_TOKENS = 256
 
 
