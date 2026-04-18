@@ -144,3 +144,32 @@ In this part: Gemma 4 differs because its fast-prefill path is structurally spli
  So your intuition is right that “final hidden state” is the right kind of tensor. The missing part is that we need
  the final hidden state after each layer, not just after the entire wrapper finishes.
  ### 
+
+## Gemma 4 vLLM Last-Token Activation Extraction
+
+- Narrowed the activation-capture objective from full prompt-token matrices to the hidden state of the last prompt token only.
+- Kept `extract_activation_layers` as exact layer selection, and tightened the public API so it is a strict `list[int]`.
+- Confirmed the intended semantics are exact-selection only: `[12, 20]` returns layer `12` and layer `20`, while scalar `20` and tuple `(12, 20)` are rejected.
+- Updated the installed `vLLM 0.19.1rc1.dev386+g55842a8d6` package so `extract_activation_layers` flows through `ModelConfig`, `EngineArgs`, and `LLM` with the new list-only contract.
+- Changed the V1 prompt activation assembly path to emit only one vector per requested layer, corresponding to the last prompt token, instead of allocating and filling `(prompt_tokens, hidden_size)` CPU buffers.
+- Re-enabled Gemma 4 activation extraction on the fast-prefill path for this narrower last-token use case.
+- Extended the Gemma 4 YOCO split path so `_run_decoder_layers(...)` can return requested per-layer hidden states from both `self_decoder` and `cross_decoder`, then merged them back into the requested global layer order.
+- Kept the old fast-prefill rejection for generic aux-hidden-state use, but added a Gemma-4-specific fast-prefill mode for prompt-terminal activation extraction.
+- Updated `compare_vllm_hidden_states.py` so validation uses the existing `all_layers_hidden_states.npz` reference and slices the Hugging Face activations at the last prompt token during comparison.
+- Added `--enforce-eager` to the comparison helper so eager mode can still be tested explicitly, but the default validation path now exercises the optimized prefill route.
+- Updated `custom-patches/README_PATCH.md` to document the new last-token activation contract and the exact-list `extract_activation_layers` API.
+- Regenerated `custom-patches/vllm-0.19rc1-gemma4-hidden-states.patch` from the installed-package diff so the repo patch matches the validated implementation.
+
+### Validation
+
+- Ran `python -m py_compile` on the edited repo helper and installed `vLLM` files.
+- Ran `uv run python compare_vllm_hidden_states.py` with `enforce_eager=False`.
+- Verified that the engine initialized with chunked prefill enabled, compiled successfully, captured CUDA graphs successfully, and did not require eager mode.
+- Verified all `30` requested layers against the last-token slice from `all_layers_hidden_states.npz`.
+- Verification result: all returned activation shapes were `(2816,)`, and the minimum cosine similarity was `0.99958479` on layer `28`.
+- Ran a direct validator sanity check and confirmed `ModelConfig.validate_extract_activation_layers_before([12, 20]) == [12, 20]`, while scalar and tuple inputs raise `TypeError`.
+
+### Repo State
+
+- Committed the repo-side helper/docs/patch updates as `6b43e0f` with message: `Update Gemma 4 activation patch for last-token outputs`.
+- Pushed branch `feat/gemma4-upstream` to `origin`.
