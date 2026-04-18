@@ -4,10 +4,10 @@
 
 - Constrained the project to Python `3.12.x` with `requires-python = ">=3.12,<3.13"`.
 - Updated `tool.uv` to use `prerelease = "allow"` and `index-strategy = "unsafe-best-match"`.
-- Refreshed the lockfile and synced the environment to the latest resolvable nightly `vllm`.
+- Pointed `uv` at the CUDA 13 nightly `vllm` index and refreshed the lockfile and environment.
 - Removed `.venv` and rebuilt it with `uv sync --no-cache` to avoid using cached packages.
 - Verified with both `./.venv/bin/python` and `uv run python`.
-- Installed version: `0.19.1rc1.dev383+g5cdddddd4`
+- Installed version: `0.19.1rc1.dev386+g55842a8d6`
 
 ## Gemma 4 Layer Sweep
 
