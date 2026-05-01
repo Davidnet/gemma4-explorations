@@ -22,11 +22,52 @@ For vLLM **0.20** (current; verified against `0.20.1rc1.dev136+g529c671e8`):
 - `custom-patches/vllm-0.20-gemma4-hidden-states.patch`
 - `custom-patches/vllm-0.20-math-sidecar.patch`
 
-For vLLM **0.19.1rc1** (verified against `0.19.1rc1.dev386+g55842a8d6`,
-no longer available from the nightly index):
+For vLLM **0.19.1rc1** (verified against `0.19.1rc1.dev386+g55842a8d6`):
 
 - `custom-patches/vllm-0.19rc1-gemma4-hidden-states.patch`
 - `custom-patches/vllm-0.19rc1-math-sidecar.patch`
+
+## Pinning a vLLM commit by URL
+
+The rolling `wheels.vllm.ai/nightly/cu130` index only retains the latest commit,
+so depending on it lets `uv sync` walk past the version a patch set was tested
+against. Pin instead by direct wheel URL — `wheels.vllm.ai` keeps per-commit
+subdirectories indefinitely:
+
+```
+s3://vllm-wheels/<full-40-char-commit-sha>/
+  ├── vllm-*.whl                # wheels live at this level
+  ├── vllm/index.html           # PEP-503 default-variant index
+  ├── cu129/vllm/index.html     # cu129-variant index (points back to root wheels)
+  ├── cu130/vllm/index.html     # cu130-variant index
+  └── cpu/vllm/index.html       # cpu variant
+```
+
+Resolve a short hash from a build like `0.20.1rc1.dev136+g529c671e8` to its
+full SHA via the GitHub API:
+
+```bash
+curl -sS https://api.github.com/repos/vllm-project/vllm/commits/529c671e8 \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['sha'])"
+# -> 529c671e8075d265a48b72e0eaaeb5e30d2f1630
+```
+
+The 0.20 pin currently in `pyproject.toml` uses this pattern (the `+` in the
+version must be URL-encoded as `%2B`):
+
+```toml
+"vllm @ https://wheels.vllm.ai/529c671e8075d265a48b72e0eaaeb5e30d2f1630/vllm-0.20.1rc1.dev136%2Bg529c671e8-cp38-abi3-manylinux_2_34_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64'"
+```
+
+For a one-shot install without editing `pyproject.toml`:
+
+```bash
+uv pip install --reinstall <wheel-url>
+```
+
+The same pattern works for the 0.19 baseline if you need to switch back; the
+0.19 wheel filename has a `.cu130` infix and lives at
+`wheels.vllm.ai/55842a8d6961204f5adbcb5ca07da8cf79d85c33/`.
 
 Historical reference patches from the older `0.18`-era layout:
 
