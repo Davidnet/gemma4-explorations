@@ -100,7 +100,7 @@ def main() -> int:
                 continue
             raw = socket.recv()
             try:
-                request = msgpack.unpackb(raw, raw=False)
+                request = msgpack.unpackb(raw, raw=False, strict_map_key=False)
             except Exception as exc:  # noqa: BLE001
                 LOGGER.exception("failed to unpack request")
                 socket.send(msgpack.packb({"error": f"unpack: {exc}"}, use_bin_type=True))

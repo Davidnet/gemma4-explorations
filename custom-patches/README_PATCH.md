@@ -11,6 +11,14 @@ This repository applies local patches to the installed package at:
 
 `.venv/lib/python3.12/site-packages/vllm`
 
+The patches target vLLM **0.19.1rc1** (verified against `0.19.1rc1.dev386+g55842a8d6`).
+A version pin in `pyproject.toml` is not enforceable because the nightly index
+(`https://wheels.vllm.ai/nightly/cu130`) only retains the latest commit. Avoid
+running `uv sync` against this lockfile after the nightly has rolled forward —
+it will pull a 0.20.x wheel and the patch hunks will reject. If a 0.20.x wheel
+gets installed, the patches must be ported, or `vllm` reinstalled from a 0.19
+wheel cached locally.
+
 ## Patch files
 
 Current patch set for the installed `vllm 0.19rc1` layout:

@@ -181,6 +181,16 @@ diff --git a/entrypoints/openai/chat_completion/serving.py b/entrypoints/openai/
 diff --git a/entrypoints/openai/completion/serving.py b/entrypoints/openai/completion/serving.py
 --- a/entrypoints/openai/completion/serving.py
 +++ b/entrypoints/openai/completion/serving.py
+@@ -239,8 +239,8 @@
+                     final_res.prompt = self._extract_prompt_text(engine_inputs[i])
+
+             final_res_batch_checked = cast(list[RequestOutput], final_res_batch)
+
+-            response = self.request_output_to_completion_response(
++            response = await self.request_output_to_completion_response(
+                 final_res_batch_checked,
+                 request,
+                 request_id,
 @@ -392,7 +392,7 @@
                                  finish_reason=finish_reason,
                                  stop_reason=stop_reason,
@@ -190,6 +200,16 @@ diff --git a/entrypoints/openai/completion/serving.py b/entrypoints/openai/compl
                                  token_ids=(
                                      as_list(output.token_ids)
                                      if request.return_token_ids
+@@ -462,8 +462,8 @@
+                                 yield f"data: {response_json}\n\n"
+         yield "data: [DONE]\n\n"
+
+-    def request_output_to_completion_response(
++    async def request_output_to_completion_response(
+         self,
+         final_res_batch: list[RequestOutput],
+         request: CompletionRequest,
+         request_id: str,
 @@ -528,7 +528,7 @@
                      prompt_token_ids=(
                          prompt_token_ids if request.return_token_ids else None

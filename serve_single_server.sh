@@ -15,7 +15,7 @@ fi
 : "${HF_TOKEN:?HF_TOKEN must be set in .env or the environment.}"
 
 export MATH_SIDECAR_IPC="${MATH_SIDECAR_IPC:-ipc:///tmp/gemma4-math.sock}"
-LAYERS="${LAYERS:-0,14,29}"
+LAYERS="${LAYERS:-0 14 29}"
 
 SOCKET_PATH="${MATH_SIDECAR_IPC#ipc://}"
 rm -f "$SOCKET_PATH"
@@ -71,4 +71,4 @@ fi
 exec vllm serve google/gemma-4-26B-A4B-it \
   --max-model-len 32768 \
   --gpu-memory-utilization 0.90 \
-  --extract-activation-layers "$LAYERS"
+  --extract-activation-layers $LAYERS
