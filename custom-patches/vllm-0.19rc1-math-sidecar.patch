@@ -1,0 +1,201 @@
+diff --git a/entrypoints/openai/engine/serving.py b/entrypoints/openai/engine/serving.py
+--- a/entrypoints/openai/engine/serving.py
++++ b/entrypoints/openai/engine/serving.py
+@@ -759,21 +759,79 @@ def clamp_prompt_logprobs(
+             if logprob_values.logprob == float("-inf"):
+                 logprob_values.logprob = -9999.0
+     return prompt_logprobs
+ 
+ 
+-def serialize_activations(
+-    activations: Mapping[int, Any] | None,
+-) -> dict[int, Any] | None:
+-    if not activations:
+-        return None
+-
+-    serialized: dict[int, Any] = {}
+-    for layer_idx, activation in activations.items():
+-        if hasattr(activation, "detach"):
+-            activation = activation.detach()
+-        if hasattr(activation, "cpu"):
+-            activation = activation.cpu()
+-        serialized[layer_idx] = (
+-            activation.tolist() if hasattr(activation, "tolist") else activation
+-        )
+-    return serialized
++async def serialize_activations(
++    activations: Mapping[int, Any] | None,
++) -> dict[int | str, Any] | None:
++    if not activations:
++        return None
++
++    import os
++
++    endpoint = os.environ.get("MATH_SIDECAR_IPC")
++    if endpoint:
++        return await _call_math_sidecar(endpoint, activations)
++
++    serialized: dict[int | str, Any] = {}
++    for layer_idx, activation in activations.items():
++        if hasattr(activation, "detach"):
++            activation = activation.detach()
++        if hasattr(activation, "cpu"):
++            activation = activation.cpu()
++        serialized[layer_idx] = (
++            activation.tolist() if hasattr(activation, "tolist") else activation
++        )
++    return serialized
++
++
++async def _call_math_sidecar(
++    endpoint: str, activations: Mapping[int, Any]
++) -> dict[int | str, Any]:
++    import logging
++    import os
++
++    import msgpack
++    import numpy as np
++    import torch
++    import zmq
++    import zmq.asyncio
++
++    timeout_ms = int(os.environ.get("MATH_SIDECAR_TIMEOUT_MS", "5000"))
++    logger = logging.getLogger("vllm.math_sidecar_client")
++
++    encoded: dict[int, dict[str, Any]] = {}
++    for layer_idx, activation in activations.items():
++        if isinstance(activation, torch.Tensor):
++            array = activation.detach().cpu().to(dtype=torch.float32).numpy()
++        else:
++            array = np.asarray(activation, dtype="float32")
++        encoded[int(layer_idx)] = {
++            "shape": list(array.shape),
++            "dtype": str(array.dtype),
++            "data": array.tobytes(),
++        }
++
++    ctx = zmq.asyncio.Context.instance()
++    socket = ctx.socket(zmq.REQ)
++    socket.setsockopt(zmq.LINGER, 0)
++    socket.setsockopt(zmq.RCVTIMEO, timeout_ms)
++    socket.setsockopt(zmq.SNDTIMEO, timeout_ms)
++    try:
++        socket.connect(endpoint)
++        await socket.send(
++            msgpack.packb(
++                {"req_id": "", "activations": encoded}, use_bin_type=True
++            )
++        )
++        raw = await socket.recv()
++    except Exception as exc:  # noqa: BLE001
++        logger.warning("math sidecar call failed: %s", exc)
++        return {"math_result": None, "error": f"{type(exc).__name__}: {exc}"}
++    finally:
++        socket.close(linger=0)
++
++    reply = msgpack.unpackb(raw, raw=False)
++    if "error" in reply:
++        return {"math_result": None, "error": str(reply["error"])}
++    return {"math_result": reply.get("math_result")}
+diff --git a/entrypoints/openai/chat_completion/protocol.py b/entrypoints/openai/chat_completion/protocol.py
+--- a/entrypoints/openai/chat_completion/protocol.py
++++ b/entrypoints/openai/chat_completion/protocol.py
+@@ -90,7 +90,7 @@ class ChatCompletionResponseChoice(OpenAIBaseModel):
+     # not part of the OpenAI spec but is useful for tracing the tokens
+     # in agent scenarios
+     token_ids: list[int] | None = None
+-    activations: dict[int, Any] | None = None
++    activations: dict[int | str, Any] | None = None
+ 
+ 
+ class ChatCompletionResponse(OpenAIBaseModel):
+@@ -119,7 +119,7 @@ class ChatCompletionResponseStreamChoice(OpenAIBaseModel):
+     stop_reason: int | str | None = None
+     # not part of the OpenAI spec but for tracing the tokens
+     token_ids: list[int] | None = None
+-    activations: dict[int, Any] | None = None
++    activations: dict[int | str, Any] | None = None
+ 
+ 
+ class ChatCompletionStreamResponse(OpenAIBaseModel):
+diff --git a/entrypoints/openai/completion/protocol.py b/entrypoints/openai/completion/protocol.py
+--- a/entrypoints/openai/completion/protocol.py
++++ b/entrypoints/openai/completion/protocol.py
+@@ -466,7 +466,7 @@ class CompletionResponseChoice(OpenAIBaseModel):
+     token_ids: list[int] | None = None  # For response
+     prompt_logprobs: list[dict[int, Logprob] | None] | None = None
+     prompt_token_ids: list[int] | None = None  # For prompt
+-    activations: dict[int, Any] | None = None
++    activations: dict[int | str, Any] | None = None
+ 
+ 
+ class CompletionResponse(OpenAIBaseModel):
+@@ -501,7 +501,7 @@ class CompletionResponseStreamChoice(OpenAIBaseModel):
+     # prompt tokens is put into choice to align with CompletionResponseChoice
+     prompt_token_ids: list[int] | None = None
+     token_ids: list[int] | None = None
+-    activations: dict[int, Any] | None = None
++    activations: dict[int | str, Any] | None = None
+ 
+ 
+ class CompletionStreamResponse(OpenAIBaseModel):
+diff --git a/entrypoints/openai/chat_completion/serving.py b/entrypoints/openai/chat_completion/serving.py
+--- a/entrypoints/openai/chat_completion/serving.py
++++ b/entrypoints/openai/chat_completion/serving.py
+@@ -1062,7 +1062,7 @@
+                             delta=delta_message,
+                             logprobs=logprobs,
+                             finish_reason=None,
+-                            activations=serialize_activations(output.activations),
++                            activations=await serialize_activations(output.activations),
+                             token_ids=(
+                                 as_list(output.token_ids)
+                                 if request.return_token_ids
+@@ -1163,7 +1163,7 @@
+                             logprobs=logprobs,
+                             finish_reason=finish_reason_,
+                             stop_reason=output.stop_reason,
+-                            activations=serialize_activations(output.activations),
++                            activations=await serialize_activations(output.activations),
+                             token_ids=(
+                                 as_list(output.token_ids)
+                                 if request.return_token_ids
+@@ -1356,7 +1356,7 @@
+                         else "stop"
+                     ),
+                     stop_reason=output.stop_reason,
+-                    activations=serialize_activations(output.activations),
++                    activations=await serialize_activations(output.activations),
+                     token_ids=(
+                         as_list(output.token_ids) if request.return_token_ids else None
+                     ),
+@@ -1573,7 +1573,7 @@
+                 if output.finish_reason
+                 else "stop",
+                 stop_reason=output.stop_reason,
+-                activations=serialize_activations(output.activations),
++                activations=await serialize_activations(output.activations),
+                 token_ids=(
+                     as_list(output.token_ids) if request.return_token_ids else None
+                 ),
+diff --git a/entrypoints/openai/completion/serving.py b/entrypoints/openai/completion/serving.py
+--- a/entrypoints/openai/completion/serving.py
++++ b/entrypoints/openai/completion/serving.py
+@@ -392,7 +392,7 @@
+                                 finish_reason=finish_reason,
+                                 stop_reason=stop_reason,
+                                 prompt_token_ids=prompt_token_ids_to_return,
+-                                activations=serialize_activations(output.activations),
++                                activations=await serialize_activations(output.activations),
+                                 token_ids=(
+                                     as_list(output.token_ids)
+                                     if request.return_token_ids
+@@ -528,7 +528,7 @@
+                     prompt_token_ids=(
+                         prompt_token_ids if request.return_token_ids else None
+                     ),
+-                    activations=serialize_activations(output.activations),
++                    activations=await serialize_activations(output.activations),
+                     token_ids=(
+                         as_list(output.token_ids) if request.return_token_ids else None
+                     ),
