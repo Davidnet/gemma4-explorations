@@ -24,8 +24,15 @@ if [[ ! -d "$VLLM_DIR" ]]; then
   exit 1
 fi
 
+VLLM_DIST_INFO="$(find "$(dirname "$VLLM_DIR")" -maxdepth 1 -type d -name 'vllm-*.dist-info' -printf '%f\n' | head -1)"
+case "$VLLM_DIST_INFO" in
+  vllm-0.20*) PATCH_GLOB='vllm-0.20*.patch' ;;
+  vllm-0.19*) PATCH_GLOB='vllm-0.19*.patch' ;;
+  *)          PATCH_GLOB='vllm-0.20*.patch' ;;
+esac
+
 mapfile -t CURRENT_PATCH_FILES < <(
-  find "$PATCH_SRC_DIR" -maxdepth 1 -type f -name 'vllm-0.19*.patch' | sort
+  find "$PATCH_SRC_DIR" -maxdepth 1 -type f -name "$PATCH_GLOB" | sort
 )
 
 if [[ "${#CURRENT_PATCH_FILES[@]}" -gt 0 ]]; then

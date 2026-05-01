@@ -11,19 +11,22 @@ This repository applies local patches to the installed package at:
 
 `.venv/lib/python3.12/site-packages/vllm`
 
-The patches target vLLM **0.19.1rc1** (verified against `0.19.1rc1.dev386+g55842a8d6`).
-A version pin in `pyproject.toml` is not enforceable because the nightly index
-(`https://wheels.vllm.ai/nightly/cu130`) only retains the latest commit. Avoid
-running `uv sync` against this lockfile after the nightly has rolled forward —
-it will pull a 0.20.x wheel and the patch hunks will reject. If a 0.20.x wheel
-gets installed, the patches must be ported, or `vllm` reinstalled from a 0.19
-wheel cached locally.
+Two patch sets are maintained, one per supported vLLM minor release.
+`apply-patch.sh` reads the installed dist-info name and picks the right set
+automatically — no manual selection needed.
 
 ## Patch files
 
-Current patch set for the installed `vllm 0.19rc1` layout:
+For vLLM **0.20** (current; verified against `0.20.1rc1.dev136+g529c671e8`):
+
+- `custom-patches/vllm-0.20-gemma4-hidden-states.patch`
+- `custom-patches/vllm-0.20-math-sidecar.patch`
+
+For vLLM **0.19.1rc1** (verified against `0.19.1rc1.dev386+g55842a8d6`,
+no longer available from the nightly index):
 
 - `custom-patches/vllm-0.19rc1-gemma4-hidden-states.patch`
+- `custom-patches/vllm-0.19rc1-math-sidecar.patch`
 
 Historical reference patches from the older `0.18`-era layout:
 
